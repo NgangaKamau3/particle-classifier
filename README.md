@@ -62,14 +62,5 @@ ResNet-15 architecture with:
 - Dropout regularization
 - Batch normalization
 
-## Results
 
-The model achieves:
-- Accuracy: X%
-- Precision: X%
-- Recall: X%
-- F1 Score: X%
-- ROC AUC: X%
-
-## License
 
