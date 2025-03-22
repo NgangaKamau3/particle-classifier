@@ -1,3 +1,16 @@
+# %% [markdown]
+"""
+# Electron-Photon Classifier
+
+This notebook implements a deep learning model for classifying electrons and photons using a ResNet-15 architecture.
+"""
+
+# %% [markdown]
+"""
+## Import Libraries and Set Seeds
+"""
+
+# %%
 import numpy as np
 import torch
 import torch.nn as nn
@@ -24,8 +37,14 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-# Define custom dataset class
+# %% [markdown]
+"""
+## Dataset Implementation
+"""
+
+# %%
 class ParticleDataset(Dataset):
+    """Custom dataset class for particle data"""
     def __init__(self, electron_path, photon_path, transform=None):
         """
         Args:
@@ -88,8 +107,15 @@ class ParticleDataset(Dataset):
         
         return sample, label
 
-# Define a custom ResNet-15 architecture
+# %% [markdown]
+"""
+## Model Architecture
+### Residual Block Implementation
+"""
+
+# %%
 class ResidualBlock(nn.Module):
+    """Implementation of a single residual block"""
     def __init__(self, in_channels, out_channels, stride=1):
         super(ResidualBlock, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -121,7 +147,14 @@ class ResidualBlock(nn.Module):
         
         return out
 
+# %% [markdown]
+"""
+### ResNet-15 Implementation
+"""
+
+# %%
 class ResNet15(nn.Module):
+    """Custom ResNet-15 architecture for particle classification"""
     def __init__(self, num_classes=2):
         super(ResNet15, self).__init__()
         self.in_channels = 64
@@ -175,8 +208,14 @@ class ResNet15(nn.Module):
         
         return out
 
-# Training function
+# %% [markdown]
+"""
+## Training and Evaluation Functions
+"""
+
+# %%
 def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs=50, device='cuda'):
+    """Model training function"""
     # Training history
     history = {
         'train_loss': [],
@@ -270,8 +309,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler
     model.load_state_dict(best_model_weights)
     return model, history
 
-# Evaluation function
+# %%
 def evaluate_model(model, test_loader, device='cuda'):
+    """Model evaluation function"""
     model.eval()
     
     true_labels = []
@@ -329,8 +369,14 @@ def evaluate_model(model, test_loader, device='cuda'):
         'probabilities': probabilities
     }
 
-# Visualization functions
+# %% [markdown]
+"""
+## Visualization Functions
+"""
+
+# %%
 def plot_training_history(history):
+    """Function to plot training metrics"""
     plt.figure(figsize=(12, 5))
     
     # Plot loss
@@ -354,7 +400,9 @@ def plot_training_history(history):
     plt.tight_layout()
     plt.show()
 
+# %%
 def visualize_samples(dataset, num_samples=5):
+    """Function to visualize dataset samples"""
     fig, axes = plt.subplots(num_samples, 2, figsize=(12, 3*num_samples))
     
     # Get random indices
@@ -377,7 +425,9 @@ def visualize_samples(dataset, num_samples=5):
         plt.tight_layout()
     plt.show()
 
+# %%
 def visualize_feature_maps(model, dataset, layer_name, device='cuda'):
+    """Function to visualize model feature maps"""
     """
     Visualize feature maps from a specific layer of the model for a sample image
     """
@@ -430,15 +480,21 @@ def visualize_feature_maps(model, dataset, layer_name, device='cuda'):
     plt.subplots_adjust(top=0.9)
     plt.show()
 
-# Main execution
+# %% [markdown]
+"""
+## Main Training Pipeline
+"""
+
+# %%
 def main():
+    """Main execution function"""
     # Check for CUDA availability
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     # Set paths to data
-    electron_path = 'electron_data.h5'  # Update with actual path
-    photon_path = 'photon_data.h5'      # Update with actual path
+    electron_path = os.path.join('datasets', 'SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5')
+    photon_path = os.path.join('datasets', 'SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5')
     
     # Create dataset
     full_dataset = ParticleDataset(electron_path, photon_path)
@@ -496,9 +552,17 @@ def main():
     # Visualize feature maps
     visualize_feature_maps(trained_model, test_dataset, 'layer3.1.conv2', device)
     
+    # Save model weights and results
+    model_path = os.path.join('models', 'resnet15_electron_photon_classifier.pth')
+    results_path = os.path.join('results', 'test_results.csv')
+    
+    # Create directories if they don't exist
+    os.makedirs('models', exist_ok=True)
+    os.makedirs('results', exist_ok=True)
+    
     # Save model weights
-    torch.save(trained_model.state_dict(), 'resnet15_electron_photon_classifier.pth')
-    print("Model saved to resnet15_electron_photon_classifier.pth")
+    torch.save(trained_model.state_dict(), model_path)
+    print(f"Model saved to {model_path}")
     
     # Save test results
     results_df = pd.DataFrame({
@@ -506,19 +570,79 @@ def main():
         'predictions': test_results['predictions'],
         'probabilities': test_results['probabilities']
     })
-    results_df.to_csv('test_results.csv', index=False)
-    print("Test results saved to test_results.csv")
+    results_df.to_csv(results_path, index=False)
+    print(f"Test results saved to {results_path}")
     
     return trained_model, test_results
 
-# Function to perform data augmentation experiment
+def check_data_paths():
+    """Check if required data files exist and have correct structure"""
+    electron_path = os.path.join('datasets', 'SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5')
+    photon_path = os.path.join('datasets', 'SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5')
+    
+    # Check if files exist
+    if not os.path.exists(electron_path):
+        print(f"Error: Electron dataset not found at {electron_path}")
+        return False
+    if not os.path.exists(photon_path):
+        print(f"Error: Photon dataset not found at {photon_path}")
+        return False
+    
+    # Check file structure
+    try:
+        with h5py.File(electron_path, 'r') as f:
+            if 'energy' not in f or 'time' not in f:
+                print(f"Error: Electron dataset missing required datasets")
+                return False
+        with h5py.File(photon_path, 'r') as f:
+            if 'energy' not in f or 'time' not in f:
+                print(f"Error: Photon dataset missing required datasets")
+                return False
+        return True
+    except Exception as e:
+        print(f"Error checking dataset structure: {str(e)}")
+        return False
+
+# Function to tune hyperparameters
+def hyperparameter_tuning():
+    # Implementation of hyperparameter tuning
+    pass
+
+def create_ensemble_model():
+    """Model ensemble experiment"""
+    # Implement ensemble model logic here
+    pass
+
+if __name__ == "__main__":
+    # Check if data files exist and have correct structure
+    if check_data_paths():
+        # Main execution
+        print("\n=== Main Training Pipeline ===")
+        model, test_results = main()
+        
+        print("\n=== Hyperparameter Tuning ===")
+        best_hyperparams = hyperparameter_tuning()
+        
+        print("\n=== Model Ensemble ===")
+        ensemble_results = create_ensemble_model()
+    else:
+        print("\nExecution stopped due to missing or invalid data files.")
+        print("Please check the file structure and ensure it contains required datasets.")
+
+# %% [markdown]
+"""
+## Experimental Functions
+"""
+
+# %%
 def augmentation_experiment():
+    """Data augmentation experiment"""
     # Check for CUDA availability
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set paths to data
-    electron_path = 'electron_data.h5'  # Update with actual path
-    photon_path = 'photon_data.h5'      # Update with actual path
+    electron_path = 'datasets/SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5'
+    photon_path = 'datasets/SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5'
 
     # Basic dataset without augmentation
     basic_dataset = ParticleDataset(electron_path, photon_path)
@@ -647,14 +771,15 @@ def augmentation_experiment():
     print("Final validation accuracy without augmentation:", basic_history['val_acc'][-1])
     print("Final validation accuracy with augmentation:", augmented_history['val_acc'][-1])
 
-# Function to perform hyperparameter tuning
+# %%
 def hyperparameter_tuning():
+    """Hyperparameter tuning experiment"""
     # Check for CUDA availability
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set paths to data
-    electron_path = ''  # Update with actual path
-    photon_path = 'photon_data.h5'      # Update with actual path
+    electron_path = 'datasets/SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5'
+    photon_path = 'datasets/SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5'
     
     # Create dataset
     full_dataset = ParticleDataset(electron_path, photon_path)
@@ -749,14 +874,15 @@ def hyperparameter_tuning():
     
     return best_config
 
-# Function to implement model ensemble
+# %%
 def create_ensemble_model():
+    """Model ensemble experiment"""
     # Check for CUDA availability
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Set paths to data
-    electron_path = 'electron_data.h5'  # Update with actual path
-    photon_path = 'photon_data.h5'      # Update with actual path
+    electron_path = 'datasets/SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5'
+    photon_path = 'datasets/SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5'
     
     # Create dataset
     full_dataset = ParticleDataset(electron_path, photon_path)
@@ -880,11 +1006,16 @@ def create_ensemble_model():
     
     return ensemble_results
 
+# %% [markdown]
+"""
+## Execute Training Pipeline
+"""
+
+# %%
 if __name__ == "__main__":
     # Main execution
     model, test_results = main()
     
-    # Optional: Run additional experiments
     print("\n=== Data Augmentation Experiment ===")
     augmentation_experiment()
     
