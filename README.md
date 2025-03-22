@@ -5,7 +5,7 @@ A deep learning model for classifying electrons and photons using ResNet-15 arch
 Description: 32x32 matrices with two channels: hit energy and time for two types of
 particles, electrons and photons, hitting the detector.
 
-The project uses a Resnet-15 like architecture in PyTorch to classify between photons and electrons based on the above criteria, that is, hit energy and time.
+The project uses a Resnet-15 like architecture in PyTorch to classify between photons and electrons based on the above criteria, that is, hit energy and time as recorded by the detector.
 
 
 ## Project Structure
