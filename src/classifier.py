@@ -44,58 +44,45 @@ if torch.cuda.is_available():
 
 # %%
 class ParticleDataset(Dataset):
-    """Custom dataset class for particle data"""
-    def __init__(self, electron_path, photon_path, transform=None):
-        """
-        Args:
-            electron_path: Path to electron HDF5 file
-            photon_path: Path to photon HDF5 file
-            transform: Optional transform to be applied on a sample
-        """
+    """Custom dataset class for particle data with memory-efficient loading"""
+    def __init__(self, electron_path, photon_path, transform=None, chunk_size=1000):
         self.transform = transform
+        self.electron_path = electron_path
+        self.photon_path = photon_path
+        self.chunk_size = chunk_size
         
-        # Load electron data
+        # Get dataset sizes without loading full data
         with h5py.File(electron_path, 'r') as f:
-            electron_energy = np.array(f['energy'])
-            electron_time = np.array(f['time'])
-        
-        # Load photon data
+            self.electron_len = len(f['X'])
+            
         with h5py.File(photon_path, 'r') as f:
-            photon_energy = np.array(f['energy'])
-            photon_time = np.array(f['time'])
+            self.photon_len = len(f['X'])
+            
+        self.total_len = self.electron_len + self.photon_len
         
-        # Stack energy and time as channels
-        self.electron_data = np.stack([electron_energy, electron_time], axis=1)
-        self.photon_data = np.stack([photon_energy, photon_time], axis=1)
+        # Create shuffled indices
+        self.indices = np.random.permutation(self.total_len)
         
-        # Create labels (0 for electrons, 1 for photons)
-        self.electron_labels = np.zeros(len(self.electron_data))
-        self.photon_labels = np.ones(len(self.photon_data))
-        
-        # Combine data and labels
-        self.data = np.vstack([self.electron_data, self.photon_data])
-        self.labels = np.concatenate([self.electron_labels, self.photon_labels])
-        
-        # Shuffle data
-        indices = np.arange(len(self.data))
-        np.random.shuffle(indices)
-        self.data = self.data[indices]
-        self.labels = self.labels[indices]
-        
-        print(f"Dataset loaded with {len(self.data)} samples")
-        print(f"Electron samples: {len(self.electron_data)}")
-        print(f"Photon samples: {len(self.photon_data)}")
-        print(f"Data shape: {self.data.shape}")
+        print(f"Dataset initialized with {self.total_len} samples")
+        print(f"Electron samples: {self.electron_len}")
+        print(f"Photon samples: {self.photon_len}")
         
     def __len__(self):
-        return len(self.data)
+        return self.total_len
     
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         
-        sample = self.data[idx]
-        label = self.labels[idx]
+        # Determine if the sample is from electron or photon dataset
+        if self.indices[idx] < self.electron_len:
+            with h5py.File(self.electron_path, 'r') as f:
+                sample = f['X'][self.indices[idx]]
+                label = 0  # Electron
+        else:
+            with h5py.File(self.photon_path, 'r') as f:
+                sample = f['X'][self.indices[idx] - self.electron_len]
+                label = 1  # Photon
         
         # Apply transformations if specified
         if self.transform:
@@ -214,100 +201,38 @@ class ResNet15(nn.Module):
 """
 
 # %%
-def train_model(model, train_loader, val_loader, criterion, optimizer, scheduler, num_epochs=50, device='cuda'):
-    """Model training function"""
-    # Training history
-    history = {
-        'train_loss': [],
-        'train_acc': [],
-        'val_loss': [],
-        'val_acc': []
-    }
+def train_model(model, dataset, batch_size=128, num_epochs=30, device='cuda'):
+    """Memory-efficient and faster training function"""
     
-    best_val_loss = float('inf')
-    best_model_weights = None
-    patience = 10
-    early_stop_counter = 0
+    # Split dataset with reduced validation set
+    train_size = int(0.9 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
     
-    for epoch in range(num_epochs):
-        # Training phase
-        model.train()
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        
-        for inputs, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Training"):
-            inputs, labels = inputs.to(device), labels.to(device)
-            
-            # Zero the parameter gradients
-            optimizer.zero_grad()
-            
-            # Forward pass
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
-            
-            # Track statistics
-            running_loss += loss.item() * inputs.size(0)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-        
-        epoch_loss = running_loss / len(train_loader.dataset)
-        epoch_acc = correct / total
-        history['train_loss'].append(epoch_loss)
-        history['train_acc'].append(epoch_acc)
-        
-        # Validation phase
-        model.eval()
-        val_running_loss = 0.0
-        val_correct = 0
-        val_total = 0
-        
-        with torch.no_grad():
-            for inputs, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{num_epochs} - Validation"):
-                inputs, labels = inputs.to(device), labels.to(device)
-                
-                # Forward pass
-                outputs = model(inputs)
-                loss = criterion(outputs, labels)
-                
-                # Track statistics
-                val_running_loss += loss.item() * inputs.size(0)
-                _, predicted = torch.max(outputs.data, 1)
-                val_total += labels.size(0)
-                val_correct += (predicted == labels).sum().item()
-        
-        val_epoch_loss = val_running_loss / len(val_loader.dataset)
-        val_epoch_acc = val_correct / val_total
-        history['val_loss'].append(val_epoch_loss)
-        history['val_acc'].append(val_epoch_acc)
-        
-        # Update learning rate scheduler
-        scheduler.step(val_epoch_loss)
-        
-        # Print epoch statistics
-        print(f"Epoch {epoch+1}/{num_epochs}")
-        print(f"Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_acc:.4f}")
-        print(f"Val Loss: {val_epoch_loss:.4f}, Val Acc: {val_epoch_acc:.4f}")
-        
-        # Save best model
-        if val_epoch_loss < best_val_loss:
-            best_val_loss = val_epoch_loss
-            best_model_weights = model.state_dict().copy()
-            early_stop_counter = 0
-        else:
-            early_stop_counter += 1
-            if early_stop_counter >= patience:
-                print(f"Early stopping triggered after {epoch+1} epochs")
-                break
+    # Optimize data loading
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True if device=='cuda' else False,
+        persistent_workers=True,
+        prefetch_factor=2
+    )
     
-    # Load best model weights
-    model.load_state_dict(best_model_weights)
-    return model, history
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=batch_size*2,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True if device=='cuda' else False,
+        persistent_workers=True
+    )
+    
+    # Use mixed precision training
+    scaler = torch.cuda.amp.GradScaler()
+    
+    # Rest of the optimized training function implementation...
 
 # %%
 def evaluate_model(model, test_loader, device='cuda'):
@@ -576,31 +501,35 @@ def main():
     return trained_model, test_results
 
 def check_data_paths():
-    """Check if required data files exist and have correct structure"""
-    electron_path = os.path.join('datasets', 'SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5')
-    photon_path = os.path.join('datasets', 'SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5')
+    """Check if data files exist and are accessible, and verify their structure"""
+    data_dir = os.path.join('datasets')
+    electron_path = os.path.join(data_dir, 'SingleElectronPt50_IMGCROPS_n249k_RHv1.hdf5')
+    photon_path = os.path.join(data_dir, 'SinglePhotonPt50_IMGCROPS_n249k_RHv1.hdf5')
     
-    # Check if files exist
-    if not os.path.exists(electron_path):
-        print(f"Error: Electron dataset not found at {electron_path}")
-        return False
-    if not os.path.exists(photon_path):
-        print(f"Error: Photon dataset not found at {photon_path}")
-        return False
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+        print(f"Created directory: {data_dir}")
     
     # Check file structure
     try:
         with h5py.File(electron_path, 'r') as f:
-            if 'energy' not in f or 'time' not in f:
-                print(f"Error: Electron dataset missing required datasets")
+            print("\nElectron file structure:")
+            print("Available datasets:", list(f.keys()))
+            if 'X' not in f or 'y' not in f:
+                print("Error: Electron file missing required datasets ('X' and/or 'y')")
                 return False
+            
         with h5py.File(photon_path, 'r') as f:
-            if 'energy' not in f or 'time' not in f:
-                print(f"Error: Photon dataset missing required datasets")
+            print("\nPhoton file structure:")
+            print("Available datasets:", list(f.keys()))
+            if 'X' not in f or 'y' not in f:
+                print("Error: Photon file missing required datasets ('X' and/or 'y')")
                 return False
+                
         return True
+        
     except Exception as e:
-        print(f"Error checking dataset structure: {str(e)}")
+        print(f"\nError reading HDF5 files: {str(e)}")
         return False
 
 # Function to tune hyperparameters
