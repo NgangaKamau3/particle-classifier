@@ -68,5 +68,31 @@ ResNet-15 architecture with:
 - Dropout regularization
 - Batch normalization
 
+# Data Matrix Specifications
+
+## Input Matrix
+- **Shape**: (batch_size, channels, height, width)
+  - batch_size: Variable (128 in training)
+  - channels: 2 (energy and time)
+  - height: 32
+  - width: 32
+- **Data Type**: torch.float32
+- **Value Range**: Normalized between 0 and 1
+- **Example shape**: (128, 2, 32, 32)
+
+## Output Matrix
+- **Shape**: (batch_size, num_classes)
+  - batch_size: Same as input
+  - num_classes: 2 (electron=0, photon=1)
+- **Data Type**: torch.float32
+- **Value Range**: [0,1] after softmax
+- **Example shape**: (128, 2)
+
+## Data Transformations
+Input data goes through these transformations:
+1. HDF5 shape (N, 32, 32, 2) → PyTorch shape (N, 2, 32, 32)
+2. Data type conversion: numpy.ndarray → torch.FloatTensor
+3. Device transfer: CPU → GPU (if available)
+
 
 
